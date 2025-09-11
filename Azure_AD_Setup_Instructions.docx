@@ -1,0 +1,210 @@
+Azure AD Integration Setup Guide for AssetTrack
+================================================
+
+This guide will help you set up Microsoft Azure Active Directory integration with your AssetTrack system to automatically sync employee names and laptop assignments.
+
+PREREQUISITES
+-------------
+• Microsoft Azure Active Directory tenant
+• Admin access to Azure AD
+• Python requests library installed (already done)
+• AssetTrack system running (already done)
+
+STEP 1: REGISTER AN APPLICATION IN AZURE AD
+-------------------------------------------
+
+1. Go to the Azure Portal: https://portal.azure.com
+2. Navigate to Azure Active Directory > App registrations
+3. Click "New registration"
+4. Fill in the details:
+   • Name: AssetTrack Integration
+   • Supported account types: Accounts in this organizational directory only
+   • Redirect URI: Leave blank (we're using client credentials flow)
+5. Click "Register"
+
+STEP 2: GET APPLICATION CREDENTIALS
+-----------------------------------
+
+1. From your registered app, note down:
+   • Application (client) ID - This is your AZURE_CLIENT_ID
+   • Directory (tenant) ID - This is your AZURE_TENANT_ID
+
+2. Create a client secret:
+   • Go to "Certificates & secrets"
+   • Click "New client secret"
+   • Add a description and choose expiration
+   • Copy the "Value" (not the ID) - This is your AZURE_CLIENT_SECRET
+
+STEP 3: GRANT API PERMISSIONS
+------------------------------
+
+1. Go to "API permissions"
+2. Click "Add a permission"
+3. Select "Microsoft Graph"
+4. Choose "Application permissions"
+5. Add the following permissions:
+   • User.Read.All - Read all users' full profiles
+   • Device.Read.All - Read all devices
+6. Click "Grant admin consent" for your organization
+
+STEP 4: CONFIGURE DJANGO SETTINGS
+---------------------------------
+
+1. Open your Django settings file: assettrack_django/settings.py
+2. Add the following lines at the end of the file:
+
+# Azure AD Integration Settings
+AZURE_TENANT_ID = 'your-tenant-id-here'
+AZURE_CLIENT_ID = 'your-client-id-here'
+AZURE_CLIENT_SECRET = 'your-client-secret-here'
+
+3. Replace the placeholder values with your actual Azure AD credentials from Step 2
+
+STEP 5: TEST THE INTEGRATION
+-----------------------------
+
+Option 1: Web Interface
+1. Start your Django server: python manage.py runserver
+2. Open your browser and go to: http://127.0.0.1:8000/
+3. Click on "Azure Sync" in the navigation menu
+4. Click "Sync Now" to perform a manual sync
+
+Option 2: Command Line
+Open a command prompt in your project directory and run:
+
+# Full sync (employees, devices, and assignments)
+python manage.py sync_azure_ad
+
+# Sync only employees
+python manage.py sync_azure_ad --employees-only
+
+# Sync only devices
+python manage.py sync_azure_ad --devices-only
+
+# Sync only device assignments
+python manage.py sync_azure_ad --assignments-only
+
+WHAT GETS SYNCED
+----------------
+
+Employees:
+• Full name (displayName)
+• Email address (mail)
+• Department
+• Job title
+• Employee ID
+• Azure AD username (userPrincipalName)
+
+Devices from Azure AD:
+• Laptops (Windows/macOS)
+• Mobile phones (iOS/Android)
+• Device name (displayName)
+• Serial number (deviceId)
+• Model and manufacturer
+• Operating system and version
+• Device ownership information
+
+Device Assignments:
+• Links devices to employees based on Azure AD device ownership
+• Updates asset status to "assigned" when linked
+• Shows in employee's asset list with Azure AD sync indicator
+
+Additional Assets:
+• You can manually add other assets (monitors, keyboards, mice, etc.)
+• These will appear alongside Azure AD synced devices
+• All assets show in the employee's asset list with appropriate icons
+• Click on asset names, employee pictures, or eye icons in the Assets table to view all assets for that employee
+
+TROUBLESHOOTING
+---------------
+
+Common Issues:
+
+1. "Azure AD credentials not configured"
+   • Check that all three environment variables are set correctly
+   • Verify the values in your Django settings
+
+2. "Insufficient privileges"
+   • Ensure you've granted admin consent for the API permissions
+   • Verify the application has the correct permissions
+
+3. "No users found"
+   • Check that users exist in your Azure AD tenant
+   • Verify the application has User.Read.All permission
+
+4. "No devices found"
+   • Ensure devices are registered in Azure AD
+   • Check that the application has Device.Read.All permission
+
+Debug Mode:
+To see detailed logs, add this to your Django settings:
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'assets.azure_ad_integration': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+    },
+}
+
+SECURITY CONSIDERATIONS
+-----------------------
+
+• Store Azure AD credentials securely (use environment variables in production)
+• Regularly rotate client secrets
+• Use the principle of least privilege for API permissions
+• Monitor sync logs for any unusual activity
+
+AUTOMATION
+----------
+
+For production use, consider setting up automated syncs using:
+
+1. Django Management Command with Cron:
+   # Add to crontab to run every hour
+   0 * * * * /path/to/python /path/to/manage.py sync_azure_ad
+
+2. Celery Tasks for background processing
+3. Azure Logic Apps for event-driven syncs
+
+SUPPORT
+-------
+
+If you encounter issues:
+1. Check the Django logs for error messages
+2. Verify your Azure AD configuration
+3. Test with a small subset of users first
+4. Ensure your Azure AD tenant has the necessary licenses
+
+CHECKLIST
+---------
+
+□ Register application in Azure AD
+□ Get application credentials (Client ID, Tenant ID, Client Secret)
+□ Grant API permissions (User.Read.All, Device.Read.All)
+□ Grant admin consent
+□ Add credentials to Django settings
+□ Test web interface sync
+□ Test command line sync
+□ Verify employee data is synced
+□ Verify device data is synced
+□ Verify device assignments are synced
+
+NOTES
+-----
+
+• The integration will automatically sync employee names and laptop assignments
+• Welcome packs will now show employee names from Azure AD
+• Asset tracking will show laptop assignments from Azure AD
+• Sync can be run manually or automated
+• All data is kept in sync with your Azure AD tenant
+
+For additional help, refer to the AZURE_AD_SETUP.md file in your project directory.
