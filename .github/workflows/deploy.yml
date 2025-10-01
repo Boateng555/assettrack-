@@ -1,4 +1,4 @@
-name: Deploy to Azure VM
+name: Deploy to vSphere VM
 
 on:
   push:
@@ -46,7 +46,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
 
-    - name: Deploy to Azure VM
+    - name: Deploy to vSphere VM
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.VM_HOST }}
@@ -59,8 +59,8 @@ jobs:
           export IMAGE_TAG=latest
           
           # Create app directory if it doesn't exist
-          mkdir -p /home/azureuser/app
-          cd /home/azureuser/app
+          mkdir -p /home/admin123/app
+          cd /home/admin123/app
           
           # Login to GitHub Container Registry
           echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -69,16 +69,16 @@ jobs:
           docker pull ghcr.io/${{ github.repository }}:latest
           
           # Stop existing containers
-          docker-compose -f /home/azureuser/app/deploy/docker-compose.yml down || true
+          docker-compose -f /home/admin123/app/deploy/docker-compose.yml down || true
           
           # Copy deployment files if they don't exist
-          if [ ! -f /home/azureuser/app/deploy/docker-compose.yml ]; then
+          if [ ! -f /home/admin123/app/deploy/docker-compose.yml ]; then
             echo "Deployment files not found. Please ensure deploy/ directory is copied to the VM."
             exit 1
           fi
           
           # Start the application
-          cd /home/azureuser/app
+          cd /home/admin123/app
           GITHUB_REPOSITORY=${{ github.repository }} docker-compose -f deploy/docker-compose.yml up -d
           
           # Clean up old images
