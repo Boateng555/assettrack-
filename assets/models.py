@@ -88,8 +88,8 @@ class Asset(models.Model):
     name = models.CharField(max_length=200)
     asset_type = models.CharField(max_length=20, choices=ASSET_TYPES)
     serial_number = models.CharField(max_length=100, unique=True)
-    model = models.CharField(max_length=200, blank=True)
-    manufacturer = models.CharField(max_length=200, blank=True)
+    model = models.CharField(max_length=200, blank=True, null=True)
+    manufacturer = models.CharField(max_length=200, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='available')
     assigned_to = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_assets')
     purchase_date = models.DateField(null=True, blank=True)
@@ -101,6 +101,10 @@ class Asset(models.Model):
     operating_system = models.CharField(max_length=50, blank=True, null=True, help_text="Operating system from Azure AD")
     os_version = models.CharField(max_length=50, blank=True, null=True, help_text="OS version from Azure AD")
     last_azure_sync = models.DateTimeField(null=True, blank=True, help_text="Last time data was synced from Azure AD")
+    azure_last_signin = models.DateTimeField(null=True, blank=True, help_text="Last sign-in date from Azure AD")
+    
+    # Health Score Field
+    health_score = models.IntegerField(null=True, blank=True, help_text="Asset health score (0-100)")
     
     # Software Asset Fields
     license_key = models.CharField(max_length=200, blank=True, null=True, help_text="Software license key")

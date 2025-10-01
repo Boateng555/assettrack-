@@ -149,8 +149,20 @@ LOGIN_URL = '/accounts/login/'
 # Message framework settings
 MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'
 
-# Email settings for development
+# Email settings - Development Mode (No Password Required)
+# Using console backend to display emails in terminal
+
+# Development mode - emails will be displayed in console
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'it-office-sal@harren-group.com'
+
+# Email domain for production (used in email links)
+EMAIL_DOMAIN = 'harren-group.com'
+
+print("📧 Email configured for development mode")
+print("📧 Emails will be displayed in the console/terminal")
+print("📧 From: it-office-sal@harren-group.com")
+print("💡 To enable real email sending, contact your IT department for email credentials")
 
 # django-allauth settings
 SITE_ID = 1

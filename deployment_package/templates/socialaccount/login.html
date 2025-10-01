@@ -1,0 +1,22 @@
+{% extends "account/base.html" %}
+{% load socialaccount %}
+
+{% block title %}Sign In Via Microsoft | AssetTrack{% endblock %}
+
+{% block content %}
+<h2>Sign In Via Microsoft</h2>
+
+<p>You are about to sign in using a third-party account from Microsoft.</p>
+
+<form method="post">
+    {% csrf_token %}
+    {% if redirect_field_value %}
+    <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}"/>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Continue</button>
+</form>
+
+<div style="margin-top: 2rem;">
+    <a href="{% url 'account_login' %}" class="btn btn-secondary">Cancel</a>
+</div>
+{% endblock %}

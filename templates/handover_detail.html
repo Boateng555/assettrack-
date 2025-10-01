@@ -330,9 +330,14 @@
                     <button onclick="clearSignature()" class="px-3 py-1 text-sm border border-slate-600 rounded text-slate-300 hover:bg-slate-700">
                         Clear
                     </button>
-                    <button onclick="saveSignature()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                        Save Signature
-                    </button>
+                    <div class="flex space-x-2">
+                        <button onclick="saveSignature()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                            Save Signature
+                        </button>
+                        <button onclick="sendSignature()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                            Send
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -403,6 +408,46 @@ function saveSignature() {
     .catch(error => {
         console.error('Error:', error);
         alert('Error saving signature');
+    });
+}
+
+function sendSignature() {
+    // For employee signature, we send the handover for them to sign
+    // No signature required from IT staff - employee will sign when they receive the email
+    
+    fetch('{% url "assets:save_signature" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({
+            handover_id: '{{ handover.id }}',
+            signature_type: 'employee',
+            signature_data: '', // No signature data - employee will sign
+            send_email: true
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            closeSignatureModal();
+            location.reload(); // Refresh to show updated status
+            
+            if (data.email_sent) {
+                alert('Handover sent to employee for signature: ' + '{{ handover.employee.email }}' + '!');
+            } else if (data.email_sent === false) {
+                alert('Handover prepared, but email could not be sent: ' + (data.email_error || 'Unknown error'));
+            } else {
+                alert('Handover sent successfully!');
+            }
+        } else {
+            alert('Error sending handover: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error sending handover');
     });
 }
 

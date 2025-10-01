@@ -12,6 +12,7 @@ urlpatterns = [
     
     # User Profile
     path('profile/', views.user_profile, name='user_profile'),
+    path('profile/change-password/', views.change_password, name='change_password'),
     
     # Employee management
     path('employees/', views.employees, name='employees'),
@@ -34,7 +35,7 @@ urlpatterns = [
     path('assets/healthy/', views.healthy_assets, name='healthy_assets'),
     path('assets/new/', views.new_assets_view, name='new_assets'),
     path('assets/attention/', views.attention_assets, name='attention_assets'),
-    path('assets/department/<str:department>/', views.department_assets, name='department_assets'),
+    path('assets/department/<path:department>/', views.department_assets, name='department_assets'),
     
     # Asset search and mark as lost
     path('assets/search-for-missing/', views.search_assets_for_missing, name='search_assets_for_missing'),

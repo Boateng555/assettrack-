@@ -1,6 +1,7 @@
 from django import template
 from django.urls import reverse
 from assets.models import Employee
+from datetime import date
 
 register = template.Library()
 
@@ -133,3 +134,29 @@ def get_professional_avatar_url_for_user(user):
     
     # Dark blue background with white text - matches the reference image exactly
     return f"https://api.dicebear.com/7.x/initials/svg?seed={seed}&backgroundColor=1e40af&textColor=ffffff&fontSize=40&fontWeight=500&radius=50&text={initials}"
+
+@register.filter
+def health_reference_date(asset):
+    """
+    Get the reference date used for health calculations.
+    For Azure AD assets, uses last_azure_sync date (when discovered).
+    For manual assets, uses purchase_date.
+    """
+    if not asset:
+        return None
+    
+    # For Azure AD assets, prioritize Azure sync date over purchase date
+    if asset.azure_ad_id and asset.last_azure_sync:
+        # Asset came from Azure AD - use sync date as reference (when it was discovered)
+        return asset.last_azure_sync.date()
+    elif asset.azure_ad_id and asset.azure_last_signin:
+        # Use Azure last sign-in date if available
+        return asset.azure_last_signin.date()
+    elif asset.purchase_date:
+        # Manually added asset - use purchase date
+        return asset.purchase_date
+    elif asset.last_azure_sync:
+        # Fallback to Azure sync date if no other date available
+        return asset.last_azure_sync.date()
+    else:
+        return None

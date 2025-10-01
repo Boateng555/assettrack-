@@ -1,12 +1,17 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.forms import PasswordChangeForm
 from django.core.paginator import Paginator
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import datetime, timedelta, date
+from django.core.mail import send_mail, EmailMultiAlternatives
+from django.urls import reverse
+from django.conf import settings
 import json
 import random
 
@@ -14,25 +19,48 @@ from .models import Employee, Asset, Handover, WelcomePack
 from .azure_ad_integration import AzureADIntegration
 
 def calculate_health_score(asset):
-    """Calculate asset health score based on purchase date"""
-    if not asset.purchase_date:
-        return 100  # New asset without purchase date
+    """Calculate asset health score based on Azure AD sync date for Azure assets, purchase date for others"""
+    reference_date = None
+    
+    # For Azure AD assets, prioritize Azure sync date over purchase date
+    if asset.azure_ad_id and asset.last_azure_sync:
+        # Asset came from Azure AD - use sync date as reference (when it was discovered)
+        reference_date = asset.last_azure_sync.date()
+    elif asset.azure_ad_id and asset.azure_last_signin:
+        # Use Azure last sign-in date if available
+        reference_date = asset.azure_last_signin.date()
+    elif asset.purchase_date:
+        # Manually added asset - use purchase date
+        reference_date = asset.purchase_date
+    elif asset.last_azure_sync:
+        # Fallback to Azure sync date if no other date available
+        reference_date = asset.last_azure_sync.date()
+    
+    if not reference_date:
+        return 50  # Unknown age - assume moderate health
     
     today = date.today()
-    age_days = (today - asset.purchase_date).days
+    age_days = (today - reference_date).days
     
-    if age_days < 365:  # Less than 1 year
+    # Health calculation based on when asset was discovered in Azure AD
+    if age_days < 30:  # Less than 1 month
         return 100
-    elif age_days < 365*2:  # 1-2 years
+    elif age_days < 90:  # Less than 3 months
+        return 95
+    elif age_days < 180:  # Less than 6 months
+        return 90
+    elif age_days < 365:  # Less than 1 year
         return 85
-    elif age_days < 365*3:  # 2-3 years
-        return 70
-    elif age_days < 365*4:  # 3-4 years
+    elif age_days < 730:  # Less than 2 years
+        return 75
+    elif age_days < 1095:  # Less than 3 years
+        return 65
+    elif age_days < 1460:  # Less than 4 years
         return 55
-    elif age_days < 365*6:  # 4-6 years
+    elif age_days < 1825:  # Less than 5 years
         return 45
-    else:  # 6+ years
-        return 40
+    else:  # 5+ years
+        return 35
 
 @login_required
 def admin_dashboard(request):
@@ -418,7 +446,8 @@ def assets(request):
     # Calculate asset age and health
     today = date.today()
     new_assets = Asset.objects.filter(
-        purchase_date__gte=today - timedelta(days=30)
+        assigned_to__isnull=True,
+        status='available'
     ).count()
     
     old_assets = Asset.objects.filter(
@@ -451,24 +480,7 @@ def assets(request):
         created_at__gte=today - timedelta(days=7)
     ).count()
     
-    # Asset health score calculation
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100  # New asset without purchase date
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:  # Less than 1 year
-            return 100
-        elif age_days < 365*2:  # 1-2 years
-            return 85
-        elif age_days < 365*3:  # 2-3 years
-            return 70
-        elif age_days < 365*4:  # 3-4 years
-            return 55
-        else:  # 4+ years
-            return 40
-    
-    # Add health scores to assets
+    # Add health scores to assets using the main function
     for asset in assets:
         asset.health_score = calculate_health_score(asset)
     
@@ -536,26 +548,7 @@ def unassigned_assets(request):
     # Calculate asset age and health
     today = date.today()
     
-    # Asset health score calculation
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100  # New asset without purchase date
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:  # Less than 1 year
-            return 100
-        elif age_days < 365*2:  # 1-2 years
-            return 85
-        elif age_days < 365*3:  # 2-3 years
-            return 70
-        elif age_days < 365*4:  # 3-4 years
-            return 55
-        elif age_days < 365*6:  # 4-6 years
-            return 45
-        else:  # 6+ years
-            return 40
-    
-    # Add health scores to assets
+    # Add health scores to assets using the main function
     for asset in unassigned_assets:
         asset.health_score = calculate_health_score(asset)
     
@@ -1649,6 +1642,7 @@ def save_signature(request):
             handover_id = data.get('handover_id')
             signature_type = data.get('signature_type')  # 'employee', 'it', or 'acknowledgment'
             signature_data = data.get('signature_data')
+            send_email = data.get('send_email', False)
             
             handover = get_object_or_404(Handover, id=handover_id)
             
@@ -1670,11 +1664,111 @@ def save_signature(request):
             
             handover.save()
             
+            # Send email if requested
+            if send_email and signature_type == 'employee':
+                try:
+                    send_handover_signature_email(handover)
+                    return JsonResponse({'status': 'success', 'email_sent': True})
+                except Exception as email_error:
+                    # Still return success for handover preparation, but note email error
+                    return JsonResponse({'status': 'success', 'email_sent': False, 'email_error': str(email_error)})
+            
             return JsonResponse({'status': 'success'})
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)})
     
     return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
+
+def send_handover_signature_email(handover):
+    """Send email to employee with handover signature link"""
+    try:
+        # Get the handover URL - use proper domain for production
+        if settings.DEBUG:
+            # Development - use localhost
+            handover_url = f"http://localhost:8000{reverse('assets:handover_detail', args=[handover.id])}"
+        else:
+            # Production - use proper domain
+            domain = getattr(settings, 'EMAIL_DOMAIN', settings.ALLOWED_HOSTS[0] if settings.ALLOWED_HOSTS else 'localhost')
+            handover_url = f"https://{domain}{reverse('assets:handover_detail', args=[handover.id])}"
+        
+        # Email subject and content
+        subject = f"Asset Handover Signature Required - {handover.handover_id} - Harren Group"
+        
+        # HTML email content
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
+                    Asset Handover Signature Required - Harren Group
+                </h2>
+                
+                <p>Dear {handover.employee.name},</p>
+                
+                <p>You have been assigned assets that require your signature for handover. Please click the link below to review and sign the handover document.</p>
+                
+                <div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #3498db; margin: 20px 0;">
+                    <h3 style="margin-top: 0; color: #2c3e50;">Handover Details:</h3>
+                    <p><strong>Handover ID:</strong> {handover.handover_id}</p>
+                    <p><strong>Created:</strong> {handover.created_at.strftime('%B %d, %Y at %I:%M %p')}</p>
+                    <p><strong>Status:</strong> {handover.status}</p>
+                </div>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{handover_url}" 
+                       style="background-color: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
+                        Sign Handover Document
+                    </a>
+                </div>
+                
+                <p style="color: #666; font-size: 14px;">
+                    If the button doesn't work, you can copy and paste this link into your browser:<br>
+                    <a href="{handover_url}" style="color: #3498db;">{handover_url}</a>
+                </p>
+                
+                <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+                <p style="color: #666; font-size: 12px;">
+                    This is an automated message from Harren Group AssetTrack. Please do not reply to this email.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Plain text version
+        text_content = f"""
+        Asset Handover Signature Required - {handover.handover_id}
+        
+        Dear {handover.employee.name},
+        
+        You have been assigned assets that require your signature for handover. Please review and sign the handover document.
+        
+        Handover Details:
+        - Handover ID: {handover.handover_id}
+        - Created: {handover.created_at.strftime('%B %d, %Y at %I:%M %p')}
+        - Status: {handover.status}
+        
+        To sign the handover document, please visit:
+        {handover_url}
+        
+        This is an automated message from Harren Group AssetTrack.
+        """
+        
+        # Send email
+        msg = EmailMultiAlternatives(subject, text_content, settings.DEFAULT_FROM_EMAIL, [handover.employee.email])
+        msg.attach_alternative(html_content, "text/html")
+        msg.send()
+        
+        # Update handover email tracking
+        handover.email_sent = True
+        handover.email_sent_at = timezone.now()
+        handover.save()
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error sending email: {str(e)}")
+        raise e
 
 # Placeholder views for other pages
 @login_required
@@ -1686,6 +1780,10 @@ def employees_detail(request, employee_id):
 @login_required
 def assets_detail(request, asset_id):
     asset = get_object_or_404(Asset, id=asset_id)
+    
+    # Calculate health score for the asset
+    asset.health_score = calculate_health_score(asset)
+    
     context = {'asset': asset}
     return render(request, 'assets_detail.html', context)
 
@@ -1901,24 +1999,7 @@ def assigned_assets(request):
     # Calculate asset age and health
     today = date.today()
     
-    # Asset health score calculation
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100  # New asset without purchase date
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:  # Less than 1 year
-            return 100
-        elif age_days < 365*2:  # 1-2 years
-            return 85
-        elif age_days < 365*3:  # 2-3 years
-            return 70
-        elif age_days < 365*4:  # 3-4 years
-            return 55
-        else:  # 4+ years
-            return 40
-    
-    # Add health scores to assets
+    # Add health scores to assets using the main function
     for asset in assigned_assets:
         asset.health_score = calculate_health_score(asset)
     
@@ -1988,24 +2069,7 @@ def maintenance_assets(request):
     # Calculate asset age and health
     today = date.today()
     
-    # Asset health score calculation
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100  # New asset without purchase date
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:  # Less than 1 year
-            return 100
-        elif age_days < 365*2:  # 1-2 years
-            return 85
-        elif age_days < 365*3:  # 2-3 years
-            return 70
-        elif age_days < 365*4:  # 3-4 years
-            return 55
-        else:  # 4+ years
-            return 40
-    
-    # Add health scores to assets
+    # Add health scores to assets using the main function
     for asset in maintenance_assets:
         asset.health_score = calculate_health_score(asset)
     
@@ -2065,24 +2129,7 @@ def lost_assets(request):
     # Calculate asset age and health
     today = date.today()
     
-    # Asset health score calculation
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100  # New asset without purchase date
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:  # Less than 1 year
-            return 100
-        elif age_days < 365*2:  # 1-2 years
-            return 85
-        elif age_days < 365*3:  # 2-3 years
-            return 70
-        elif age_days < 365*4:  # 3-4 years
-            return 55
-        else:  # 4+ years
-            return 40
-    
-    # Add health scores to assets
+    # Add health scores to assets using the main function
     for asset in lost_assets:
         asset.health_score = calculate_health_score(asset)
     
@@ -2142,24 +2189,7 @@ def retired_assets(request):
     # Calculate asset age and health
     today = date.today()
     
-    # Asset health score calculation
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100  # New asset without purchase date
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:  # Less than 1 year
-            return 100
-        elif age_days < 365*2:  # 1-2 years
-            return 85
-        elif age_days < 365*3:  # 2-3 years
-            return 70
-        elif age_days < 365*4:  # 3-4 years
-            return 55
-        else:  # 4+ years
-            return 40
-    
-    # Add health scores to assets
+    # Add health scores to assets using the main function
     for asset in retired_assets:
         asset.health_score = calculate_health_score(asset)
     
@@ -2217,24 +2247,7 @@ def old_assets(request):
         count=Count('id')
     ).order_by('-count')
     
-    # Asset health score calculation
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100  # New asset without purchase date
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:  # Less than 1 year
-            return 100
-        elif age_days < 365*2:  # 1-2 years
-            return 85
-        elif age_days < 365*3:  # 2-3 years
-            return 70
-        elif age_days < 365*4:  # 3-4 years
-            return 55
-        else:  # 4+ years
-            return 40
-    
-    # Add health scores to assets
+    # Add health scores to assets using the main function
     for asset in old_assets:
         asset.health_score = calculate_health_score(asset)
     
@@ -2261,22 +2274,7 @@ def healthy_assets(request):
     # Get assets with good health scores (80%+)
     today = date.today()
     
-    # Asset health score calculation
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100  # New asset without purchase date
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:  # Less than 1 year
-            return 100
-        elif age_days < 365*2:  # 1-2 years
-            return 85
-        elif age_days < 365*3:  # 2-3 years
-            return 70
-        elif age_days < 365*4:  # 3-4 years
-            return 55
-        else:  # 4+ years
-            return 40
+    # Use the main health calculation function
     
     # Get all assets and filter by health score
     all_assets = Asset.objects.select_related('assigned_to').all()
@@ -2331,12 +2329,12 @@ def healthy_assets(request):
 
 @login_required
 def new_assets_view(request):
-    """New assets view - shows assets added in the last 30 days"""
+    """New assets view - shows unassigned assets (not assigned to anyone)"""
     
-    # Get assets added in the last 30 days
-    thirty_days_ago = timezone.now() - timedelta(days=30)
+    # Get unassigned assets (not assigned to anyone)
     new_assets = Asset.objects.filter(
-        created_at__gte=thirty_days_ago
+        assigned_to__isnull=True,
+        status='available'
     ).select_related('assigned_to').order_by('-created_at')
     
     # Filter by asset type if provided
@@ -2356,9 +2354,9 @@ def new_assets_view(request):
         )
     
     # Calculate analytics
-    total_new = new_assets.count()
-    assigned_new = new_assets.filter(assigned_to__isnull=False).count()
-    unassigned_new = new_assets.filter(assigned_to__isnull=True).count()
+    total_new = new_assets.count()  # All unassigned assets
+    assigned_new = 0  # No assigned assets in this view (all are unassigned)
+    unassigned_new = total_new  # All assets in this view are unassigned
     
     # Asset type distribution
     asset_type_stats = new_assets.values(
@@ -2370,21 +2368,7 @@ def new_assets_view(request):
     # Calculate health scores
     today = date.today()
     
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:
-            return 100
-        elif age_days < 365*2:
-            return 85
-        elif age_days < 365*3:
-            return 70
-        elif age_days < 365*4:
-            return 55
-        else:
-            return 40
+    # Use the main health calculation function
     
     for asset in new_assets:
         asset.health_score = calculate_health_score(asset)
@@ -2445,22 +2429,7 @@ def attention_assets(request):
         count=Count('id')
     ).order_by('-count')
     
-    # Calculate health scores
-    def calculate_health_score(asset):
-        if not asset.purchase_date:
-            return 100
-        
-        age_days = (today - asset.purchase_date).days
-        if age_days < 365:
-            return 100
-        elif age_days < 365*2:
-            return 85
-        elif age_days < 365*3:
-            return 70
-        elif age_days < 365*4:
-            return 55
-        else:
-            return 40
+    # Use the main health calculation function
     
     for asset in attention_assets:
         asset.health_score = calculate_health_score(asset)
@@ -2561,6 +2530,76 @@ def employee_photo(request, employee_id):
 def privacy_policy(request):
     """Privacy Policy page view"""
     return render(request, 'privacy_policy.html')
+
+@login_required
+def change_password(request):
+    """Handle password change requests via AJAX"""
+    if request.method == 'POST':
+        try:
+            old_password = request.POST.get('old_password')
+            new_password1 = request.POST.get('new_password1')
+            new_password2 = request.POST.get('new_password2')
+            
+            # Validate that all fields are provided
+            if not all([old_password, new_password1, new_password2]):
+                return JsonResponse({
+                    'success': False,
+                    'error': 'All fields are required.'
+                })
+            
+            # Validate that new passwords match
+            if new_password1 != new_password2:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'New passwords do not match.'
+                })
+            
+            # Validate that new password is different from old password
+            if old_password == new_password1:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'New password must be different from current password.'
+                })
+            
+            # Use Django's built-in password change form for validation
+            form = PasswordChangeForm(user=request.user, data={
+                'old_password': old_password,
+                'new_password1': new_password1,
+                'new_password2': new_password2,
+            })
+            
+            if form.is_valid():
+                # Save the new password
+                form.save()
+                # Update the session to prevent logout
+                update_session_auth_hash(request, form.user)
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': 'Password changed successfully!'
+                })
+            else:
+                # Get the first error message
+                error_messages = []
+                for field, errors in form.errors.items():
+                    for error in errors:
+                        error_messages.append(str(error))
+                
+                return JsonResponse({
+                    'success': False,
+                    'error': error_messages[0] if error_messages else 'Invalid password data.'
+                })
+                
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'error': f'An error occurred: {str(e)}'
+            })
+    
+    return JsonResponse({
+        'success': False,
+        'error': 'Invalid request method.'
+    })
 
 @login_required
 def department_assets(request, department):
