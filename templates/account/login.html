@@ -179,12 +179,20 @@
             </div>
         </form>
         
+        {% load socialaccount %}
+        {% get_providers as socialaccount_providers %}
+        {% if socialaccount_providers %}
         <div class="social-login">
             <p style="color: #94a3b8; font-size: 0.875rem; margin-bottom: 0.75rem;">Or use a third-party</p>
-            <a href="{% provider_login_url 'microsoft' %}" class="social-button">
-                🔵 Sign in with Microsoft
-            </a>
+            {% for provider in socialaccount_providers %}
+                {% if provider.id == "microsoft" %}
+                <a href="{% provider_login_url 'microsoft' %}" class="social-button">
+                    🔵 Sign in with Microsoft
+                </a>
+                {% endif %}
+            {% endfor %}
         </div>
+        {% endif %}
     </div>
 </body>
 </html>

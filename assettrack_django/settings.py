@@ -203,18 +203,22 @@ AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID')
 AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET')
 
-# Microsoft Azure AD (Entra ID) settings
-SOCIALACCOUNT_PROVIDERS = {
-    'microsoft': {
-        'TENANT': AZURE_TENANT_ID,  # Use your specific tenant ID
-        'SCOPE': [
-            'User.Read',
-            'email',
-            'profile',
-        ],
-        'AUTH_PARAMS': {
-            'prompt': 'select_account',
-        },
-        'METHOD': 'oauth2',
+# Microsoft Azure AD (Entra ID) settings - Only configure if Azure credentials are available
+if AZURE_TENANT_ID and AZURE_CLIENT_ID and AZURE_CLIENT_SECRET:
+    SOCIALACCOUNT_PROVIDERS = {
+        'microsoft': {
+            'TENANT': AZURE_TENANT_ID,
+            'SCOPE': [
+                'User.Read',
+                'email',
+                'profile',
+            ],
+            'AUTH_PARAMS': {
+                'prompt': 'select_account',
+            },
+            'METHOD': 'oauth2',
+        }
     }
-}
+else:
+    # Disable Microsoft provider if credentials are not available
+    SOCIALACCOUNT_PROVIDERS = {}
