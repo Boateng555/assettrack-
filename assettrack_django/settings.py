@@ -28,12 +28,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-h-pd1d97vy_o%26m^#4s%@oao(*bpf6((i)ii@jfmbk90%_qqz')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '172.27.2.43,127.0.0.1,localhost').split(',')
 
 # CSRF settings
-CSRF_TRUSTED_ORIGINS = ['http://172.27.2.43', 'https://172.27.2.43']
+CSRF_TRUSTED_ORIGINS = ['http://172.27.2.43', 'https://172.27.2.43', 'http://localhost', 'https://localhost']
 
 
 # Application definition
@@ -90,12 +90,19 @@ WSGI_APPLICATION = 'assettrack_django.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Use PostgreSQL in production, SQLite for development
+if os.getenv('DATABASE_URL'):
+    import dj_database_url
+    DATABASES = {
+        'default': dj_database_url.parse(os.getenv('DATABASE_URL'))
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
