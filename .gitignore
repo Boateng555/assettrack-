@@ -176,11 +176,3 @@ client_secret.json
 # Temporary files
 *.tmp
 *.temp
-
-# Terraform
-.terraform/
-*.tfstate
-*.tfstate.*
-.terraform.lock.hcl
-terraform.tfvars
-*.tfplan
