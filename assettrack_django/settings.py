@@ -30,10 +30,10 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-h-pd1d97vy_o%26m^#4s%@oao(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '172.27.2.43,127.0.0.1,localhost').split(',')
 
-# CSRF settings for ngrok'
-CSRF_TRUSTED_ORIGINS = ['https://5e79165b44d2.ngrok-free.app']
+# CSRF settings
+CSRF_TRUSTED_ORIGINS = ['http://172.27.2.43', 'https://172.27.2.43']
 
 
 # Application definition
@@ -133,6 +133,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
