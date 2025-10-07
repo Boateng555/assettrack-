@@ -203,5 +203,18 @@ AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID')
 AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET')
 
-# Microsoft Azure AD (Entra ID) settings - Temporarily disabled
-SOCIALACCOUNT_PROVIDERS = {}
+# Microsoft Azure AD (Entra ID) settings
+SOCIALACCOUNT_PROVIDERS = {
+    'microsoft': {
+        'TENANT': AZURE_TENANT_ID or 'common',  # Use 'common' if no tenant specified
+        'SCOPE': [
+            'User.Read',
+            'email',
+            'profile',
+        ],
+        'AUTH_PARAMS': {
+            'prompt': 'select_account',
+        },
+        'METHOD': 'oauth2',
+    }
+}
