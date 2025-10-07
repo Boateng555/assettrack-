@@ -28,9 +28,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-h-pd1d97vy_o%26m^#4s%@oao(*bpf6((i)ii@jfmbk90%_qqz')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+DEBUG = True  # Force debug mode to see errors
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '172.27.2.43,127.0.0.1,localhost').split(',')
+ALLOWED_HOSTS = ['*']  # Allow all hosts for debugging
 
 # CSRF settings
 CSRF_TRUSTED_ORIGINS = ['http://172.27.2.43', 'https://172.27.2.43', 'http://localhost', 'https://localhost']
